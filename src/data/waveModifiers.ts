@@ -1,0 +1,108 @@
+import type { WaveModifierCatalog } from "@/types";
+
+export const WAVE_MODIFIERS: WaveModifierCatalog = {
+  doble_o_nada: {
+    id: "doble_o_nada",
+    displayName: "DOBLE O NADA",
+    description: "+80% fichas por kill, pero enemigos con +35% HP.",
+    flavor: "La casa dobla la apuesta.",
+    rarity: "rare",
+    color: 0xffd166,
+    shortLabel: "DOBLE·NADA",
+    effects: {
+      chipRewardMult: 1.8,
+      enemyHpMult: 1.35,
+    },
+  },
+  mesa_caliente: {
+    id: "mesa_caliente",
+    displayName: "MESA CALIENTE",
+    description: "Torres disparan 20% más rápido. Enemigos también corren 15% más.",
+    flavor: "Todo acelera cuando la mesa se enciende.",
+    rarity: "common",
+    color: 0xff7a59,
+    shortLabel: "CALIENTE",
+    effects: {
+      towerFireRateMult: 0.8,
+      enemySpeedMult: 1.15,
+    },
+  },
+  mano_firme: {
+    id: "mano_firme",
+    displayName: "MANO FIRME",
+    description: "+25% daño de torres. +2 enemigos por grupo.",
+    flavor: "El crupier respeta a los que no tiemblan.",
+    rarity: "common",
+    color: 0x6fd3ff,
+    shortLabel: "MANO FIRME",
+    effects: {
+      towerDamageMult: 1.25,
+      extraEnemiesPerGroup: 2,
+    },
+  },
+  pacto_sangriento: {
+    id: "pacto_sangriento",
+    displayName: "PACTO SANGRIENTO",
+    description: "Recibe 40 fichas ya. La base pierde 2 HP.",
+    flavor: "Sangre por oro. Siempre ha sido así.",
+    rarity: "rare",
+    color: 0xff5c6c,
+    shortLabel: "PACTO",
+    effects: {
+      immediateChips: 40,
+      immediateBaseDamage: 2,
+    },
+  },
+  velocidad_suicida: {
+    id: "velocidad_suicida",
+    displayName: "VELOCIDAD SUICIDA",
+    description: "Enemigos +30% velocidad, pero tienen 20% menos HP.",
+    flavor: "Menos carne, más prisa.",
+    rarity: "common",
+    color: 0xa97bff,
+    shortLabel: "VELOZ",
+    effects: {
+      enemySpeedMult: 1.3,
+      enemyHpMult: 0.8,
+    },
+  },
+  tiro_preciso: {
+    id: "tiro_preciso",
+    displayName: "TIRO PRECISO",
+    description: "+40% daño de torres. Sin bonus extra de fichas.",
+    flavor: "Perfecto no necesita premios.",
+    rarity: "common",
+    color: 0x78d2a6,
+    shortLabel: "PRECISO",
+    effects: {
+      towerDamageMult: 1.4,
+      chipRewardMult: 0.9,
+    },
+  },
+  casa_gorda: {
+    id: "casa_gorda",
+    displayName: "CASA GORDA",
+    description: "+60% fichas por kill. Enemigos llegan +15% más rápido.",
+    flavor: "La casa te paga, pero te apura.",
+    rarity: "rare",
+    color: 0xffb454,
+    shortLabel: "CASA GORDA",
+    effects: {
+      chipRewardMult: 1.6,
+      enemySpeedMult: 1.15,
+    },
+  },
+  arrancada_lenta: {
+    id: "arrancada_lenta",
+    displayName: "ARRANCADA LENTA",
+    description: "Enemigos 20% más lentos pero +25% más fuertes.",
+    flavor: "Tranquilos como verdugos.",
+    rarity: "common",
+    color: 0x8888a6,
+    shortLabel: "LENTOS",
+    effects: {
+      enemySpeedMult: 0.8,
+      enemyHpMult: 1.25,
+    },
+  },
+};
