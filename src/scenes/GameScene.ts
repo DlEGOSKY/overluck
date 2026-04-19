@@ -22,6 +22,8 @@ import { HUD } from "@/ui/HUD";
 import { TowerPicker } from "@/ui/TowerPicker";
 import { TowerInfoPanel } from "@/ui/TowerInfoPanel";
 import { BossHpOverlay, PhaseCallout } from "@/ui/BossHpOverlay";
+import { PauseOverlay } from "@/ui/PauseOverlay";
+import { SettingsOverlay } from "@/ui/SettingsOverlay";
 import { applyLetterSpacing, dur, ease, hex, palette, textStyle, type } from "@/ui/theme";
 import type { BetweenWavesData, BetweenWavesResolution } from "@/scenes/BetweenWavesScene";
 import type { ModifierPickSceneData, ModifierPickResult } from "@/scenes/ModifierPickScene";
