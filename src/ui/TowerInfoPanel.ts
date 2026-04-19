@@ -14,11 +14,17 @@ import {
 } from "./theme";
 
 const PANEL_WIDTH = 260;
-const PANEL_HEIGHT = 188;
+const PANEL_HEIGHT = 236;
+const SELL_BTN_H = 32;
 
 export interface TowerInfoPanelDeps {
   chips: ChipManager;
   onUpgradeRequested: (tower: Tower) => boolean;
+  onSellRequested?: (tower: Tower) => void;
+  onMoveRequested?: (tower: Tower) => void;
+  getSellRefund?: (tower: Tower) => number;
+  getRelocateFee?: () => number;
+  getSynergyLabels?: (tower: Tower) => string[];
 }
 
 export class TowerInfoPanel {
@@ -39,6 +45,7 @@ export class TowerInfoPanel {
   private readonly pointerArrow: Phaser.GameObjects.Graphics;
   private readonly backdrop: Phaser.GameObjects.Rectangle;
 
+  private readonly synergyText: Phaser.GameObjects.Text;
   private currentTower: Tower | null = null;
   private buttonState: "idle" | "hover" | "disabled" = "idle";
   private accentColor: number = palette.primary;
@@ -115,6 +122,13 @@ export class TowerInfoPanel {
       this.redrawButton();
     });
     this.buttonHit.on("pointerdown", () => this.tryUpgrade());
+
+    this.synergyText = scene.add.text(16, 42, "", textStyle(type.caption, { color: hex.gold }));
+    this.synergyText.setWordWrapWidth(PANEL_WIDTH - 32);
+    this.container.add(this.synergyText);
+
+    // Sell + Move secondary row
+    this.buildSecondaryButtons();
 
     // Stop propagation so clicks inside the panel don't reach the backdrop
     const panelHit = scene.add.rectangle(PANEL_WIDTH / 2, PANEL_HEIGHT / 2, PANEL_WIDTH, PANEL_HEIGHT, 0x000000, 0.001);
@@ -263,6 +277,16 @@ export class TowerInfoPanel {
     }
     this.statsText.setText(lines.join("\n"));
 
+    // Synergy tags
+    const synergyLabels = this.deps.getSynergyLabels?.(tower) ?? [];
+    if (synergyLabels.length > 0) {
+      this.synergyText.setText(synergyLabels.join("  ·  "));
+      this.synergyText.setVisible(true);
+      this.synergyText.setY(this.statsText.y + this.statsText.height + 6);
+    } else {
+      this.synergyText.setVisible(false);
+    }
+
     // Upgrade preview / button
     if (nextUpgrade) {
       this.upgradeSummary.setText(`Siguiente  ${nextUpgrade.tierLabel}: ${nextUpgrade.summary}`);
@@ -281,6 +305,14 @@ export class TowerInfoPanel {
       this.buttonLabel.setColor(hex.textDim);
       this.buttonSub.setText("");
     }
+
+    // Secondary button labels reflect current state.
+    const refund = this.deps.getSellRefund ? this.deps.getSellRefund(tower) : 0;
+    const fee = this.deps.getRelocateFee ? this.deps.getRelocateFee() : 0;
+    this.sellLabel.setText(`VENDER  +${refund}`);
+    const canMove = this.deps.chips.canAfford(fee);
+    this.moveLabel.setText(`MOVER  ${fee}`);
+    this.moveLabel.setColor(canMove ? hex.text : hex.textDim);
 
     this.redrawButton();
   }
@@ -313,6 +345,76 @@ export class TowerInfoPanel {
       g.fillStyle(0xffffff, 0.15);
       g.fillRoundedRect(x + 3, y + 3, w - 6, (h - 6) / 2, 6);
     }
+  }
+
+  private sellBg!: Phaser.GameObjects.Graphics;
+  private sellHit!: Phaser.GameObjects.Rectangle;
+  private sellLabel!: Phaser.GameObjects.Text;
+  private moveBg!: Phaser.GameObjects.Graphics;
+  private moveHit!: Phaser.GameObjects.Rectangle;
+  private moveLabel!: Phaser.GameObjects.Text;
+
+  private buildSecondaryButtons(): void {
+    const y = PANEL_HEIGHT - 84;
+    const halfW = (PANEL_WIDTH - 40) / 2;
+    const leftX = 16;
+    const rightX = 16 + halfW + 8;
+
+    this.sellBg = this.scene.add.graphics();
+    this.container.add(this.sellBg);
+    this.sellLabel = this.scene.add.text(leftX + halfW / 2, y + SELL_BTN_H / 2, "VENDER", textStyle(type.overline, { color: hex.text }));
+    this.sellLabel.setOrigin(0.5, 0.5);
+    applyLetterSpacing(this.sellLabel, type.overline);
+    this.container.add(this.sellLabel);
+    this.sellHit = this.scene.add.rectangle(leftX + halfW / 2, y + SELL_BTN_H / 2, halfW, SELL_BTN_H, 0x000000, 0.001);
+    this.sellHit.setInteractive({ useHandCursor: true });
+    this.container.add(this.sellHit);
+    this.sellHit.on("pointerover", () => { audio.playHover(); this.redrawSecondary("sell", true); });
+    this.sellHit.on("pointerout", () => this.redrawSecondary("sell", false));
+    this.sellHit.on("pointerdown", () => this.trySell());
+
+    this.moveBg = this.scene.add.graphics();
+    this.container.add(this.moveBg);
+    this.moveLabel = this.scene.add.text(rightX + halfW / 2, y + SELL_BTN_H / 2, "MOVER", textStyle(type.overline, { color: hex.text }));
+    this.moveLabel.setOrigin(0.5, 0.5);
+    applyLetterSpacing(this.moveLabel, type.overline);
+    this.container.add(this.moveLabel);
+    this.moveHit = this.scene.add.rectangle(rightX + halfW / 2, y + SELL_BTN_H / 2, halfW, SELL_BTN_H, 0x000000, 0.001);
+    this.moveHit.setInteractive({ useHandCursor: true });
+    this.container.add(this.moveHit);
+    this.moveHit.on("pointerover", () => { audio.playHover(); this.redrawSecondary("move", true); });
+    this.moveHit.on("pointerout", () => this.redrawSecondary("move", false));
+    this.moveHit.on("pointerdown", () => this.tryMove());
+
+    this.redrawSecondary("sell", false);
+    this.redrawSecondary("move", false);
+  }
+
+  private redrawSecondary(which: "sell" | "move", hover: boolean): void {
+    const y = PANEL_HEIGHT - 84;
+    const halfW = (PANEL_WIDTH - 40) / 2;
+    const g = which === "sell" ? this.sellBg : this.moveBg;
+    const x = which === "sell" ? 16 : 16 + halfW + 8;
+    const accent = which === "sell" ? palette.danger : palette.gold;
+    g.clear();
+    g.fillStyle(hover ? accent : palette.surface, hover ? 0.85 : 0.9);
+    g.fillRoundedRect(x, y, halfW, SELL_BTN_H, 6);
+    g.lineStyle(1, accent, hover ? 1 : 0.6);
+    g.strokeRoundedRect(x, y, halfW, SELL_BTN_H, 6);
+  }
+
+  private trySell(): void {
+    if (!this.currentTower || !this.deps.onSellRequested) return;
+    const t = this.currentTower;
+    this.deps.onSellRequested(t);
+    this.hide();
+  }
+
+  private tryMove(): void {
+    if (!this.currentTower || !this.deps.onMoveRequested) return;
+    const t = this.currentTower;
+    this.deps.onMoveRequested(t);
+    this.hide();
   }
 
   private tryUpgrade(): void {

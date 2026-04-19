@@ -11,7 +11,9 @@ export type WaveModifierId =
   | "velocidad_suicida"
   | "tiro_preciso"
   | "casa_gorda"
-  | "arrancada_lenta";
+  | "arrancada_lenta"
+  | "ruleta_rusa"
+  | "crupier_piadoso";
 
 export type WaveModifierRarity = "common" | "rare";
 

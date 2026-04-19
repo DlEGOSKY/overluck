@@ -22,7 +22,7 @@ export interface TowerStats {
 
 export class Tower {
   public readonly definition: TowerDefinition;
-  public readonly slot: TowerSlot;
+  public slot: TowerSlot;
 
   private readonly scene: Phaser.Scene;
   private readonly base: Phaser.GameObjects.Arc;
@@ -46,6 +46,10 @@ export class Tower {
   private currentRoll?: TowerRoll;
   private currentSplash?: TowerSplash;
   private fireRateMultiplier: () => number = () => 1;
+  private synergyDamageMult: () => number = () => 1;
+  private synergyRangeMult: () => number = () => 1;
+  private synergyFireRateMult: () => number = () => 1;
+  private synergyCritBonus: () => number = () => 0;
 
   public constructor(
     scene: Phaser.Scene,
@@ -182,8 +186,40 @@ export class Tower {
     return this.getNextUpgrade() !== null;
   }
 
+  /** Chips invested so far: base cost + every applied upgrade cost. */
+  public getInvestedChips(): number {
+    let total = this.definition.cost;
+    const ups = this.definition.upgrades ?? [];
+    for (let i = 0; i < this.tier && i < ups.length; i += 1) {
+      total += ups[i].cost;
+    }
+    return total;
+  }
+
   public setFireRateMultiplier(fn: () => number): void {
     this.fireRateMultiplier = fn;
+  }
+
+  public setSynergyProviders(fns: {
+    damageMult?: () => number;
+    rangeMult?: () => number;
+    fireRateMult?: () => number;
+    critBonus?: () => number;
+  }): void {
+    if (fns.damageMult) this.synergyDamageMult = fns.damageMult;
+    if (fns.rangeMult) this.synergyRangeMult = fns.rangeMult;
+    if (fns.fireRateMult) this.synergyFireRateMult = fns.fireRateMult;
+    if (fns.critBonus) this.synergyCritBonus = fns.critBonus;
+  }
+
+  /** Effective range (base × synergy multiplier). */
+  public getEffectiveRange(): number {
+    return this.currentRange * this.synergyRangeMult();
+  }
+
+  /** Force a cooldown on this tower (boss "jam" ability). */
+  public jam(durationMs: number): void {
+    this.cooldownMs = Math.max(this.cooldownMs, durationMs);
   }
 
   public applyUpgrade(): boolean {
@@ -343,6 +379,14 @@ export class Tower {
     return this.visuals;
   }
 
+  /** Relocate visuals + interactable positions to a new slot. */
+  public moveTo(newSlot: TowerSlot): void {
+    this.slot = newSlot;
+    this.visuals.setPosition(newSlot.x, newSlot.y);
+    this.rangeRing.setPosition(newSlot.x, newSlot.y);
+    this.shadow.setPosition(newSlot.x, newSlot.y + this.definition.baseRadius * 0.55);
+  }
+
   public get x(): number {
     return this.slot.x;
   }
@@ -365,7 +409,7 @@ export class Tower {
     if (this.currentTarget) {
       this.aimAt(this.currentTarget);
       if (this.cooldownMs <= 0) {
-        this.cooldownMs = this.currentFireRateMs * this.fireRateMultiplier();
+        this.cooldownMs = this.currentFireRateMs * this.fireRateMultiplier() * this.synergyFireRateMult();
         const shot = this.rollShot(this.currentTarget);
         this.flashMuzzle(shot.outcome);
         return shot;
@@ -376,12 +420,14 @@ export class Tower {
   }
 
   private rollShot(target: Enemy): FireEvent {
+    const dmgMult = this.synergyDamageMult();
+    const baseDamage = Math.max(1, Math.round(this.currentDamage * dmgMult));
     const roll = this.currentRoll;
     if (!roll) {
-      return { target, damage: this.currentDamage, outcome: "normal" };
+      return { target, damage: baseDamage, outcome: "normal" };
     }
 
-    const critBonus = this.relics?.gamblerCritBonus() ?? 0;
+    const critBonus = (this.relics?.gamblerCritBonus() ?? 0) + this.synergyCritBonus();
     const misfireReduction = this.relics?.gamblerMisfireReduction() ?? 0;
     const critChance = Math.min(0.95, roll.critChance + critBonus);
     const misfireChance = Math.max(0, roll.misfireChance - misfireReduction);
@@ -390,18 +436,18 @@ export class Tower {
     if (dice < critChance) {
       return {
         target,
-        damage: Math.round(this.currentDamage * roll.critMultiplier),
+        damage: Math.round(baseDamage * roll.critMultiplier),
         outcome: "crit",
       };
     }
     if (dice < critChance + misfireChance) {
       return {
         target,
-        damage: Math.max(1, Math.round(this.currentDamage * roll.misfireMultiplier)),
+        damage: Math.max(1, Math.round(baseDamage * roll.misfireMultiplier)),
         outcome: "misfire",
       };
     }
-    return { target, damage: this.currentDamage, outcome: "normal" };
+    return { target, damage: baseDamage, outcome: "normal" };
   }
 
   private flashMuzzle(outcome: FireOutcome): void {
@@ -484,7 +530,7 @@ export class Tower {
       const dx = enemy.x - this.slot.x;
       const dy = enemy.y - this.slot.y;
       const dist = Math.hypot(dx, dy);
-      if (dist <= this.currentRange && dist < closestDist) {
+      if (dist <= this.getEffectiveRange() && dist < closestDist) {
         closest = enemy;
         closestDist = dist;
       }
@@ -495,7 +541,7 @@ export class Tower {
   private isInRange(enemy: Enemy): boolean {
     const dx = enemy.x - this.slot.x;
     const dy = enemy.y - this.slot.y;
-    return Math.hypot(dx, dy) <= this.currentRange;
+    return Math.hypot(dx, dy) <= this.getEffectiveRange();
   }
 
   private aimAt(enemy: Enemy): void {

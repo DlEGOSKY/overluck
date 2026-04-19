@@ -79,6 +79,8 @@ export class SlotScene extends Phaser.Scene {
   }
 
   public create(): void {
+    audio.startAmbient("casino");
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => audio.stopAmbient());
     this.drawBackdrop();
     this.drawHeader();
     this.drawCabinet();

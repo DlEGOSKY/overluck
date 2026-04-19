@@ -208,6 +208,73 @@ export class AudioManager {
     this.tone({ freq: 990, duration: 0.1, type: "triangle", gain: 0.1, delay: 0.08 });
   }
 
+  /** Bright shimmer + gold note used for achievement toasts. */
+  public playAchievement(): void {
+    this.tone({ freq: 880, duration: 0.08, type: "triangle", gain: 0.14 });
+    this.tone({ freq: 1174.66, duration: 0.12, type: "triangle", gain: 0.14, delay: 0.06 });
+    this.tone({ freq: 1567.98, duration: 0.2, type: "triangle", gain: 0.16, delay: 0.14 });
+    this.noiseBurst(0.3, 0.05, 0.1);
+  }
+
+  /** Short descending chord when a tower is sold. */
+  public playSell(): void {
+    this.tone({ freq: 660, endFreq: 440, duration: 0.18, type: "triangle", gain: 0.16 });
+    this.tone({ freq: 330, endFreq: 220, duration: 0.14, type: "sawtooth", gain: 0.1, delay: 0.03 });
+  }
+
+  /** Ominous swell for boss phase transitions. */
+  public playBossPhase(phase: number): void {
+    const base = 120 - phase * 15;
+    this.tone({ freq: base, endFreq: base * 2, duration: 0.6, type: "sawtooth", gain: 0.22 });
+    this.tone({ freq: base * 1.5, duration: 0.55, type: "triangle", gain: 0.14, delay: 0.08 });
+    this.noiseBurst(0.5, 0.15, 0.0);
+  }
+
+  // --- Ambient drone -----------------------------------------------------
+
+  private ambientNodes: { osc: OscillatorNode; gain: GainNode }[] = [];
+
+  /**
+   * Starts a sustained tri-pad drone. Multiple calls replace the current
+   * ambient. Intended for casino mini-scenes (Slot / Roulette / Card).
+   */
+  public startAmbient(mode: "casino" | "menu" = "casino"): void {
+    this.stopAmbient();
+    if (!this.enabled || !this.ctx || !this.masterGain) return;
+    const ctx = this.ctx;
+    const master = this.masterGain;
+    const freqs = mode === "casino" ? [110, 165, 220] : [98, 147, 196];
+    const t0 = ctx.currentTime;
+    for (const f of freqs) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(0.035, t0 + 1.4);
+      osc.connect(g).connect(master);
+      osc.start(t0);
+      this.ambientNodes.push({ osc, gain: g });
+    }
+  }
+
+  public stopAmbient(): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    for (const { osc, gain } of this.ambientNodes) {
+      try {
+        gain.gain.cancelScheduledValues(t0);
+        gain.gain.setValueAtTime(gain.gain.value, t0);
+        gain.gain.linearRampToValueAtTime(0, t0 + 0.4);
+        osc.stop(t0 + 0.5);
+      } catch {
+        /* already stopped */
+      }
+    }
+    this.ambientNodes = [];
+  }
+
   // --- Internals ----------------------------------------------------------
 
   private now(): number {

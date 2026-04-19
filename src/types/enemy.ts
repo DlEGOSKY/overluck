@@ -7,7 +7,8 @@ export type EnemyId =
   | "armored"
   | "wisp"
   | "elite"
-  | "boss";
+  | "boss"
+  | "dealer";
 
 /**
  * Visual form of the enemy. All forms still use an Arc as the underlying
@@ -17,7 +18,7 @@ export type EnemyId =
 export type EnemyShape = "circle" | "triangle" | "diamond" | "plate" | "wisp" | "boss";
 
 export interface BossAbilityDefinition {
-  kind: "summon" | "shieldPulse" | "speedBoost";
+  kind: "summon" | "shieldPulse" | "speedBoost" | "chipDrain" | "towerJam" | "houseEdge";
   /** HP ratio (0..1) at which this ability triggers once. */
   hpTrigger: number;
   /** For summon: enemy id to summon and how many. */
@@ -27,6 +28,12 @@ export interface BossAbilityDefinition {
   durationMs?: number;
   /** For speedBoost: multiplicative boost applied for the remainder. */
   speedMult?: number;
+  /** For chipDrain: fraction of current chips stolen (0..1). */
+  chipDrainFraction?: number;
+  /** For towerJam: duration towers stop firing (ms). */
+  jamDurationMs?: number;
+  /** For houseEdge: crit chance reduction applied for the rest of the fight. */
+  critPenalty?: number;
 }
 
 export interface BossPhaseDefinition {

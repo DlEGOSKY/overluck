@@ -50,4 +50,18 @@ export const RELICS: RelicCatalog = {
     color: 0xff5c6c,
     effects: [{ kind: "gambler_crit_bonus", value: 0.1 }],
   },
+  corona_casa: {
+    id: "corona_casa",
+    displayName: "Corona de la Casa",
+    description: "+30 fichas extra al limpiar cada oleada.",
+    color: 0xe9b64a,
+    effects: [{ kind: "wave_clear_chip_bonus", value: 30 }],
+  },
+  carta_muerte: {
+    id: "carta_muerte",
+    displayName: "Carta de Muerte",
+    description: "Resucita la base una vez al llegar a 0 HP.",
+    color: 0x9c27b0,
+    effects: [{ kind: "death_card", value: 1 }],
+  },
 };

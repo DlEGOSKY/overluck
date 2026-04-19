@@ -8,3 +8,5 @@ export * from "./reward";
 export * from "./waveModifier";
 export * from "./profile";
 export * from "./unlock";
+export * from "./character";
+export * from "./pact";

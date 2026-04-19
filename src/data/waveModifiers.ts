@@ -105,4 +105,31 @@ export const WAVE_MODIFIERS: WaveModifierCatalog = {
       enemyHpMult: 1.25,
     },
   },
+  ruleta_rusa: {
+    id: "ruleta_rusa",
+    displayName: "RULETA RUSA",
+    description: "Recibe 90 fichas ya. La base pierde 5 HP.",
+    flavor: "Un disparo. O pagas tú o paga ella.",
+    rarity: "rare",
+    color: 0xff3d55,
+    shortLabel: "RULETA",
+    effects: {
+      immediateChips: 90,
+      immediateBaseDamage: 5,
+    },
+  },
+  crupier_piadoso: {
+    id: "crupier_piadoso",
+    displayName: "CRUPIER PIADOSO",
+    description: "+3 enemigos por grupo, pero +60% fichas y +10% daño.",
+    flavor: "La casa nunca regala nada gratis.",
+    rarity: "rare",
+    color: 0xf0c97a,
+    shortLabel: "PIADOSO",
+    effects: {
+      extraEnemiesPerGroup: 3,
+      chipRewardMult: 1.6,
+      towerDamageMult: 1.1,
+    },
+  },
 };

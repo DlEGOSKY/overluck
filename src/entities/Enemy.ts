@@ -350,7 +350,7 @@ export class Enemy {
       onComplete: () => ring.destroy(),
     });
 
-    // Spark particles
+    // Spark particles (color-coded from enemy)
     const sparkCount = this.isBoss ? 12 : 6;
     for (let i = 0; i < sparkCount; i += 1) {
       const angle = (Math.PI * 2 * i) / sparkCount + Math.random() * 0.3;
@@ -372,6 +372,40 @@ export class Enemy {
         duration: 360 + Math.random() * 140,
         ease: "Quad.Out",
         onComplete: () => spark.destroy(),
+      });
+    }
+
+    // Gold chip particles: 3-5 tiny coins that arc + fall with gravity,
+    // reinforcing the casino payout metaphor for every kill.
+    const chipCount = this.isBoss ? 10 : 3;
+    for (let i = 0; i < chipCount; i += 1) {
+      const chip = this.scene.add.circle(this.sprite.x, this.sprite.y, 3, palette.gold, 1);
+      chip.setStrokeStyle(1, palette.goldDeep, 1);
+      chip.setDepth(17);
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.9;
+      const velocity = 70 + Math.random() * 60;
+      const vx = Math.cos(angle) * velocity;
+      const vy = Math.sin(angle) * velocity;
+      const startX = this.sprite.x;
+      const startY = this.sprite.y;
+      const duration = 520 + Math.random() * 260;
+
+      // Parametric flight: x = linear, y = projectile (gravity).
+      // Animate a dummy `t` from 0 → 1 and project.
+      const state = { t: 0 } as { t: number };
+      this.scene.tweens.add({
+        targets: state,
+        t: 1,
+        duration,
+        ease: "Quad.Out",
+        onUpdate: () => {
+          const tSec = (state.t * duration) / 1000;
+          chip.x = startX + vx * tSec;
+          chip.y = startY + vy * tSec + 220 * tSec * tSec;
+          chip.scaleX = 1 - 0.4 * Math.abs(Math.sin(state.t * Math.PI * 3));
+          chip.alpha = 1 - Math.max(0, state.t - 0.6) / 0.4;
+        },
+        onComplete: () => chip.destroy(),
       });
     }
 

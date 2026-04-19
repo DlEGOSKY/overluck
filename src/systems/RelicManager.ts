@@ -52,6 +52,16 @@ export class RelicManager {
     return this.sumEffect("rare_modifier_bias");
   }
 
+  /** Flat chips granted when a wave is cleared. */
+  public waveClearChipBonus(): number {
+    return this.sumEffect("wave_clear_chip_bonus");
+  }
+
+  /** Number of death cards granted by relics (resurrection uses). */
+  public deathCardCount(): number {
+    return this.sumEffect("death_card");
+  }
+
   private sumEffect(kind: string): number {
     let total = 0;
     for (const relic of this.owned) {

@@ -1,8 +1,11 @@
 import Phaser from "phaser";
 import { MAP_HEIGHT, MAP_WIDTH } from "@/data/path";
 import { UNLOCKS } from "@/data/unlocks";
+import { CHARACTERS } from "@/data/characters";
 import { audio } from "@/systems/AudioManager";
 import { storage } from "@/systems/StorageManager";
+import { dailySeed } from "@/systems/Rng";
+import type { CharacterId } from "@/types";
 import { SettingsOverlay } from "@/ui/SettingsOverlay";
 import {
   applyLetterSpacing,
@@ -29,6 +32,7 @@ export class MainMenuScene extends Phaser.Scene {
   private settingsOverlay!: SettingsOverlay;
   private resetArmed = false;
   private resetButton: { bg: Phaser.GameObjects.Graphics; text: Phaser.GameObjects.Text; redraw: (armed: boolean) => void } | null = null;
+  private selectedCharacter: CharacterId = "novato";
 
   // Particle motes animated in the background
   private motes: Phaser.GameObjects.Arc[] = [];
@@ -46,6 +50,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.drawHeader();
     this.drawProfileCard();
     this.drawUnlockTracker();
+    this.drawCharacterPicker();
     this.drawButtons();
 
     this.settingsOverlay = new SettingsOverlay(this, MAP_WIDTH, MAP_HEIGHT, () => {});
@@ -227,9 +232,10 @@ export class MainMenuScene extends Phaser.Scene {
     const cx = MAP_WIDTH / 2;
     const y = MAP_HEIGHT - 110;
 
-    this.makeButton(cx - 200, y, 180, 48, "JUGAR  ·  ENTER", palette.primary, hex.textInverted, () => this.startRun());
-    this.makeButton(cx, y, 180, 48, "AJUSTES", palette.surface, hex.text, () => this.settingsOverlay.open());
-    this.resetButton = this.makeButton(cx + 200, y, 180, 48, "REINICIAR", palette.surface, hex.textMuted, () => this.tryReset());
+    this.makeButton(cx - 280, y, 180, 48, "JUGAR  ·  ENTER", palette.primary, hex.textInverted, () => this.startRun());
+    this.makeButton(cx - 60, y, 200, 48, "RETO DIARIO", palette.gold, hex.textInverted, () => this.startDaily());
+    this.makeButton(cx + 160, y, 130, 48, "AJUSTES", palette.surface, hex.text, () => this.settingsOverlay.open());
+    this.resetButton = this.makeButton(cx + 320, y, 130, 48, "REINICIAR", palette.surface, hex.textMuted, () => this.tryReset());
   }
 
   private makeButton(
@@ -292,9 +298,83 @@ export class MainMenuScene extends Phaser.Scene {
     this.scene.restart();
   }
 
+  private drawCharacterPicker(): void {
+    const cx = MAP_WIDTH / 2;
+    const y = MAP_HEIGHT - 180;
+    const ids = Object.keys(CHARACTERS) as CharacterId[];
+    const cardW = 160;
+    const gap = 16;
+    const totalW = ids.length * cardW + (ids.length - 1) * gap;
+    const startX = cx - totalW / 2;
+
+    const cards: { id: CharacterId; bg: Phaser.GameObjects.Graphics; nameText: Phaser.GameObjects.Text }[] = [];
+
+    ids.forEach((id, i) => {
+      const def = CHARACTERS[id];
+      const cardX = startX + i * (cardW + gap);
+      const cardH = 56;
+
+      const bg = this.add.graphics();
+      const isSelected = id === this.selectedCharacter;
+      bg.fillStyle(isSelected ? def.color : palette.surface, 0.92);
+      bg.fillRoundedRect(cardX, y, cardW, cardH, 8);
+      bg.lineStyle(2, isSelected ? palette.gold : def.color, isSelected ? 1 : 0.5);
+      bg.strokeRoundedRect(cardX, y, cardW, cardH, 8);
+
+      const nameText = this.add.text(
+        cardX + cardW / 2,
+        y + 14,
+        def.displayName,
+        textStyle(type.overline, { color: isSelected ? hex.textInverted : hex.text }),
+      );
+      nameText.setOrigin(0.5, 0);
+      applyLetterSpacing(nameText, type.overline);
+
+      const descText = this.add.text(
+        cardX + cardW / 2,
+        y + 34,
+        def.description.length > 28 ? def.description.slice(0, 26) + "\u2026" : def.description,
+        textStyle(type.caption, { color: isSelected ? hex.textInverted : hex.textMuted }),
+      );
+      descText.setOrigin(0.5, 0);
+
+      cards.push({ id, bg, nameText });
+
+      const hit = this.add.rectangle(cardX + cardW / 2, y + cardH / 2, cardW, cardH, 0x000000, 0.001);
+      hit.setInteractive({ useHandCursor: true });
+      hit.on("pointerdown", () => {
+        audio.playClick();
+        this.selectedCharacter = id;
+        // Redraw all cards
+        cards.forEach((c, ci) => {
+          const d = CHARACTERS[c.id];
+          const sel = c.id === id;
+          const cx2 = startX + ci * (cardW + gap);
+          c.bg.clear();
+          c.bg.fillStyle(sel ? d.color : palette.surface, 0.92);
+          c.bg.fillRoundedRect(cx2, y, cardW, cardH, 8);
+          c.bg.lineStyle(2, sel ? palette.gold : d.color, sel ? 1 : 0.5);
+          c.bg.strokeRoundedRect(cx2, y, cardW, cardH, 8);
+          c.nameText.setColor(sel ? hex.textInverted : hex.text);
+        });
+      });
+    });
+  }
+
   private startRun(): void {
     audio.playClick();
     this.cameras.main.fadeOut(260, 0, 0, 0);
-    this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("GameScene"));
+    this.cameras.main.once("camerafadeoutcomplete", () =>
+      this.scene.start("GameScene", { characterId: this.selectedCharacter }),
+    );
+  }
+
+  private startDaily(): void {
+    audio.playClick();
+    const seed = dailySeed();
+    this.cameras.main.fadeOut(260, 0, 0, 0);
+    this.cameras.main.once("camerafadeoutcomplete", () =>
+      this.scene.start("GameScene", { seed, characterId: this.selectedCharacter }),
+    );
   }
 }

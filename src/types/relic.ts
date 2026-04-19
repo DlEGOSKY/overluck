@@ -5,14 +5,18 @@ export type RelicId =
   | "sparkplug"
   | "greased_dice"
   | "amuleto_crupier"
-  | "ficha_marcada";
+  | "ficha_marcada"
+  | "corona_casa"
+  | "carta_muerte";
 
 export type RelicEffectKind =
   | "chip_reward_multiplier"
   | "gambler_crit_bonus"
   | "gambler_misfire_reduction"
   | "shock_splash_bonus"
-  | "rare_modifier_bias";
+  | "rare_modifier_bias"
+  | "wave_clear_chip_bonus"
+  | "death_card";
 
 export interface RelicEffect {
   kind: RelicEffectKind;

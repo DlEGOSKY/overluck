@@ -19,6 +19,9 @@ export interface BossControllerEvents {
   onSummon: (enemyId: EnemyId, count: number) => void;
   onShieldPulse: (durationMs: number) => void;
   onSpeedBoost: (mult: number) => void;
+  onChipDrain: (fraction: number) => void;
+  onTowerJam: (durationMs: number) => void;
+  onHouseEdge: (critPenalty: number) => void;
   onBossDefeated: (boss: Enemy) => void;
   onBossEscaped: (boss: Enemy) => void;
 }
@@ -142,6 +145,21 @@ export class BossController {
         const mult = ability.speedMult ?? 1.25;
         slot.boss.multiplySpeed(mult);
         this.events.onSpeedBoost(mult);
+        break;
+      }
+      case "chipDrain": {
+        const frac = ability.chipDrainFraction ?? 0.15;
+        this.events.onChipDrain(frac);
+        break;
+      }
+      case "towerJam": {
+        const dur = ability.jamDurationMs ?? 3000;
+        this.events.onTowerJam(dur);
+        break;
+      }
+      case "houseEdge": {
+        const penalty = ability.critPenalty ?? 0.10;
+        this.events.onHouseEdge(penalty);
         break;
       }
     }

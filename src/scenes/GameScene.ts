@@ -17,39 +17,80 @@ import { WAVE_MODIFIERS } from "@/data/waveModifiers";
 import { BossController } from "@/systems/BossController";
 import { audio } from "@/systems/AudioManager";
 import { stats } from "@/systems/StatsRecorder";
+import { storage } from "@/systems/StorageManager";
+import { rng } from "@/systems/Rng";
 import { UnlockManager } from "@/systems/UnlockManager";
+import { AchievementManager } from "@/systems/AchievementManager";
+import { ComboTracker } from "@/systems/ComboTracker";
+import { SynergyManager } from "@/systems/SynergyManager";
+import { ComboChip } from "@/ui/ComboChip";
 import { HUD } from "@/ui/HUD";
 import { TowerPicker } from "@/ui/TowerPicker";
 import { TowerInfoPanel } from "@/ui/TowerInfoPanel";
 import { BossHpOverlay, PhaseCallout } from "@/ui/BossHpOverlay";
 import { PauseOverlay } from "@/ui/PauseOverlay";
 import { SettingsOverlay } from "@/ui/SettingsOverlay";
+import { AchievementToast } from "@/ui/AchievementToast";
+import { TutorialHint } from "@/ui/TutorialHint";
+import { Tooltip } from "@/ui/Tooltip";
 import { applyLetterSpacing, dur, ease, hex, palette, textStyle, type } from "@/ui/theme";
 import type { BetweenWavesData, BetweenWavesResolution } from "@/scenes/BetweenWavesScene";
 import type { ModifierPickSceneData, ModifierPickResult } from "@/scenes/ModifierPickScene";
 import type { UnlockSceneData } from "@/scenes/UnlockScene";
-import type { RelicId, TowerId, UnlockDefinition, WaveDefinition } from "@/types";
+import { CHARACTERS } from "@/data/characters";
+import { PACTS } from "@/data/pacts";
+import { PactManager } from "@/systems/PactManager";
+import type { CharacterId, RelicId, TowerId, UnlockDefinition, WaveDefinition } from "@/types";
 
 const INITIAL_CHIPS = 75;
 const INITIAL_BASE_HP = 20;
+
+/** Produces a shareable run identifier derived from the seeded RNG. */
+function generateRunCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const pick = (n: number): string => {
+    let out = "";
+    for (let i = 0; i < n; i += 1) {
+      out += alphabet[Math.floor(rng.next() * alphabet.length)];
+    }
+    return out;
+  };
+  return `OVERLUCK-${pick(4)}-${pick(4)}`;
+}
 
 export class GameScene extends Phaser.Scene {
   private chips!: ChipManager;
   private enemies!: EnemyManager;
   private projectiles!: ProjectileManager;
   private towers!: TowerManager;
+  private synergies!: SynergyManager;
   private waves!: WaveManager;
   private relics!: RelicManager;
   private rewardFactory!: RewardFactory;
   private waveModifiers!: WaveModifierManager;
   private bossController!: BossController;
   private unlockManager!: UnlockManager;
+  private achievementManager!: AchievementManager;
+  private achievementToast!: AchievementToast;
+  private combo = new ComboTracker();
+  private comboChip!: ComboChip;
+  private tutorialHint!: TutorialHint;
   private pendingUnlocks: UnlockDefinition[] = [];
   private hud!: HUD;
   private towerPicker!: TowerPicker;
   private towerInfoPanel!: TowerInfoPanel;
   private bossOverlay!: BossHpOverlay;
   private phaseCallout!: PhaseCallout;
+  private dangerVignette!: Phaser.GameObjects.Graphics;
+  private bossTintOverlay!: Phaser.GameObjects.Rectangle;
+  private sharedTooltip!: Tooltip;
+  private runCode = "";
+  private runSeed = 0;
+  private dealerCritPenalty = 0;
+  private charFireRateMult = 1;
+  private charCritBonus = 0;
+  private charChipRewardMult = 0;
+  private deathCards = 0;
   private pauseOverlay!: PauseOverlay;
   private settingsOverlay!: SettingsOverlay;
   private speedMultiplier: 1 | 2 = 1;
@@ -76,17 +117,57 @@ export class GameScene extends Phaser.Scene {
     this.drawPath();
     this.drawSpawnMarker();
     this.drawBase();
+    this.drawAmbientMotes();
     this.drawVignette();
 
-    this.chips = new ChipManager(INITIAL_CHIPS);
+    // Seed the global RNG first so every downstream system is deterministic.
+    // If launched as a daily challenge the seed is date-derived.
+    const sceneData = this.scene.settings.data as { seed?: number; characterId?: CharacterId } | undefined;
+    this.runSeed = sceneData?.seed ?? (Date.now() ^ (Math.random() * 0xffffffff));
+    rng.seed(this.runSeed);
+
+    // Character loadout
+    const charId = sceneData?.characterId ?? "novato";
+    const charDef = CHARACTERS[charId];
+    let extraChips = 0;
+    let extraBaseHp = 0;
+    this.charFireRateMult = 1;
+    this.charCritBonus = 0;
+    this.charChipRewardMult = 0;
+    for (const p of charDef.passives) {
+      switch (p.kind) {
+        case "extra_chips":        extraChips += p.value; break;
+        case "extra_base_hp":      extraBaseHp += Math.round(p.value); break;
+        case "tower_fire_rate_mult": this.charFireRateMult *= p.value; break;
+        case "crit_bonus":         this.charCritBonus += p.value; break;
+        case "chip_reward_mult":   this.charChipRewardMult += p.value; break;
+      }
+    }
+
+    // Permanent pact bonuses (meta-progression)
+    const pactMgr = new PactManager(PACTS, storage.load());
+    extraChips += pactMgr.extraChips();
+    extraBaseHp += pactMgr.extraBaseHp();
+    this.charFireRateMult *= pactMgr.towerFireRateMult();
+    this.charCritBonus += pactMgr.critBonus();
+    this.charChipRewardMult += pactMgr.chipRewardMult();
+
+    this.baseHp += extraBaseHp;
+    this.baseHpMax += extraBaseHp;
+
+    this.chips = new ChipManager(INITIAL_CHIPS + extraChips);
     this.relics = new RelicManager(RELICS);
+    if (charDef.startingRelic) this.relics.acquire(charDef.startingRelic);
+    this.deathCards = this.relics.deathCardCount();
+    this.relics.onChange(() => { this.deathCards = this.relics.deathCardCount(); });
     this.waveModifiers = new WaveModifierManager(WAVE_MODIFIERS);
     this.rewardFactory = new RewardFactory({
       templates: REWARD_TEMPLATES,
       relics: this.relics,
+      random: () => rng.next(),
     });
 
-    // Kick off stats tracking for this run.
+    this.runCode = generateRunCode();
     stats.startRun(this.time.now);
 
     // Unlock evaluator: queue newly-unlocked items to show AFTER the next
@@ -94,6 +175,12 @@ export class GameScene extends Phaser.Scene {
     this.pendingUnlocks = [];
     this.unlockManager = new UnlockManager({
       onUnlocked: (def) => this.pendingUnlocks.push(def),
+    });
+
+    // Achievement system: toast in top-right when criteria are first met.
+    this.achievementToast = new AchievementToast(this, MAP_WIDTH);
+    this.achievementManager = new AchievementManager({
+      onUnlocked: (def) => this.achievementToast.push(def),
     });
 
     // Pause menu + settings overlays share a `paused` suspension with the
@@ -111,11 +198,29 @@ export class GameScene extends Phaser.Scene {
       if (this.paused && !this.pauseOverlay.isOpen()) this.pauseOverlay.open();
     });
 
+    // Vignette rojo pulsante cuando HP base está crítico. Hidden by default.
+    this.dangerVignette = this.add.graphics();
+    this.dangerVignette.setDepth(95);
+    this.dangerVignette.setScrollFactor(0);
+    this.redrawDangerVignette(0);
+
+    // Fullscreen warm tint overlay that fades in on boss phase transitions.
+    // Using MULTIPLY blend so colors shift instead of dimming the scene.
+    this.bossTintOverlay = this.add.rectangle(0, 0, MAP_WIDTH, MAP_HEIGHT, 0xff3d55, 0);
+    this.bossTintOverlay.setOrigin(0, 0);
+    this.bossTintOverlay.setDepth(90);
+    this.bossTintOverlay.setBlendMode(Phaser.BlendModes.MULTIPLY);
+    this.bossTintOverlay.setScrollFactor(0);
+
     const rewardForKill = (enemy: { definition: { id: import("@/types").EnemyId; chipReward: number } }) => {
       const base = enemy.definition.chipReward;
       const relicMult = this.relics.chipRewardMultiplier();
       const modMult = this.waveModifiers.chipRewardMult();
-      const reward = Math.max(1, Math.round(base * relicMult * modMult));
+      // Kill-streak multiplier decays if kills stop coming.
+      const snap = this.combo.onKill();
+      const comboMult = snap.multiplier;
+      const charMult = 1 + this.charChipRewardMult;
+      const reward = Math.max(1, Math.round(base * relicMult * modMult * comboMult * charMult));
       stats.onEnemyKilled(enemy.definition.id, reward);
       return reward;
     };
@@ -141,9 +246,21 @@ export class GameScene extends Phaser.Scene {
     this.bossOverlay = new BossHpOverlay(this, MAP_WIDTH);
     this.phaseCallout = new PhaseCallout(this, MAP_WIDTH, MAP_HEIGHT);
     this.bossController = new BossController(this, {
-      onPhaseEnter: (phase) => {
+      onPhaseEnter: (phase, index) => {
         this.bossOverlay.setPhase(phase);
         this.phaseCallout.show(phase);
+        audio.playBossPhase(index);
+        // Color-grade: phase index fades in a crimson MULTIPLY overlay.
+        // Phase 0 = 0; 1 = faint warm; 2+ = strong crimson.
+        const alphaByPhase = [0, 0.18, 0.38];
+        const targetAlpha = alphaByPhase[Math.min(index, alphaByPhase.length - 1)];
+        this.tweens.add({
+          targets: this.bossTintOverlay,
+          fillAlpha: targetAlpha,
+          duration: 600,
+          ease: ease.inOut,
+        });
+        if (index >= 2) this.cameras.main.shake(420, 0.008);
       },
       onSummon: (enemyId, count) => {
         const overrides = {
@@ -159,6 +276,22 @@ export class GameScene extends Phaser.Scene {
       },
       onSpeedBoost: (_mult) => {
         this.cameras.main.shake(200, 0.006);
+      },
+      onChipDrain: (fraction) => {
+        const amount = Math.floor(this.chips.value * fraction);
+        if (amount > 0) this.chips.spend(amount);
+        this.hud.flashStatus(`EL CRUPIER ROBA ${amount} FICHAS`, 2000);
+        this.cameras.main.shake(300, 0.008);
+      },
+      onTowerJam: (durationMs) => {
+        this.towers.jamAll(durationMs);
+        this.hud.flashStatus(`TORRES BLOQUEADAS · ${(durationMs / 1000).toFixed(1)}s`, 2000);
+        this.cameras.main.flash(200, 200, 100, 0, false);
+      },
+      onHouseEdge: (critPenalty) => {
+        this.dealerCritPenalty += critPenalty;
+        this.synergies.setGlobalCritOffset(this.charCritBonus - this.dealerCritPenalty);
+        this.hud.flashStatus(`VENTAJA DE LA CASA  ·  -${Math.round(critPenalty * 100)}% CRIT`, 2500);
       },
       onBossDefeated: () => {
         this.bossOverlay.hide();
@@ -189,30 +322,36 @@ export class GameScene extends Phaser.Scene {
       this.projectiles,
       this.relics,
       this.waveModifiers,
+      () => rng.next(),
     );
+    if (this.charFireRateMult !== 1) this.towers.setGlobalFireRateMult(this.charFireRateMult);
 
     this.waves = new WaveManager(WAVES, this.enemies, {
       onWaveStart: (wave) => {
         audio.playWaveStart();
         stats.onWaveReached(wave.index);
         this.showWaveTitleCard(wave);
+        this.tutorialHint.dismiss();
       },
       onWaveCleared: (wave) => {
         audio.playWaveClear();
         this.chips.add(wave.chipBonus);
+        const relicBonus = this.relics.waveClearChipBonus();
+        if (relicBonus > 0) this.chips.add(relicBonus);
         stats.onWaveCleared(wave.index);
         // Modifier is a one-shot bet for the wave that just finished.
         this.waveModifiers.clear();
-        // Evaluate unlocks now so any celebration can fire between waves.
+        // Evaluate unlocks + achievements between waves.
         this.unlockManager.check();
+        this.achievementManager.check();
         this.showClearCard(wave);
         this.openRewardPhase(wave);
       },
       onAllWavesCleared: () => {
         audio.playVictory();
         this.victory = true;
-        stats.finalizeRun({ nowMs: this.time.now, won: true });
-        this.showEndingCard("VICTORIA", "R para reiniciar", hex.primary);
+        const entry = stats.finalizeRun({ nowMs: this.time.now, won: true });
+        this.time.delayedCall(900, () => this.showRunSummary(entry));
       },
     });
     this.waves.setModifiers({
@@ -224,6 +363,21 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.hud = new HUD(this, MAP_WIDTH, MAP_HEIGHT);
+    const tooltip = new Tooltip(this, MAP_WIDTH, MAP_HEIGHT);
+    this.hud.setTooltip(tooltip);
+    this.sharedTooltip = tooltip;
+    this.comboChip = new ComboChip(this, MAP_WIDTH);
+    this.tutorialHint = new TutorialHint(this);
+
+    // First-time tip: point at the first empty tower slot so the player
+    // knows the core action. Dismissed when wave 1 starts.
+    const profile = storage.load();
+    if (profile.runsPlayed <= 1 && TOWER_SLOTS.length > 0) {
+      const firstSlot = TOWER_SLOTS[0];
+      this.time.delayedCall(600, () => {
+        this.tutorialHint.show("Click aquí para colocar una torre", firstSlot.x, firstSlot.y - 4, 7000);
+      });
+    }
 
     // Tower roster: start with the base 3, plus any unlocked extras.
     const towerIds: TowerId[] = ["blaster", "gambler", "shock"];
@@ -239,18 +393,54 @@ export class GameScene extends Phaser.Scene {
       },
       { x: 20, y: MAP_HEIGHT - 72 - 60, ids: towerIds },
     );
+    this.towerPicker.attachTooltip(this.sharedTooltip);
 
     // Info panel for placed towers (handles upgrade flow)
     this.towerInfoPanel = new TowerInfoPanel(this, {
       chips: this.chips,
       onUpgradeRequested: (tower) => {
         const ok = this.towers.tryUpgradeTower(tower);
-        if (ok) stats.onTowerUpgraded();
+        if (ok) {
+          stats.onTowerUpgraded();
+          this.synergies.recompute(this.towers.getAllTowers());
+        }
         return ok;
       },
+      onSellRequested: (tower) => {
+        const refund = this.towers.sellTower(tower);
+        this.hud.flashStatus(`TORRE VENDIDA  +${refund} fichas`, 1400);
+      },
+      onMoveRequested: (tower) => {
+        if (this.towers.beginRelocate(tower)) {
+          this.hud.flashStatus("SELECCIONA UN SLOT  ·  ESC cancela", 2000);
+        } else {
+          this.hud.flashStatus("FICHAS INSUFICIENTES", 1200);
+        }
+      },
+      getSellRefund: (tower) => Math.floor(tower.getInvestedChips() * 0.7),
+      getRelocateFee: () => 15,
+      getSynergyLabels: (tower) => this.synergies.getActiveLabels(tower),
     });
+    this.synergies = new SynergyManager(this);
+    if (this.charCritBonus !== 0) this.synergies.setGlobalCritOffset(this.charCritBonus);
     this.towers.onTowerClicked((tower) => this.towerInfoPanel.show(tower));
-    this.towers.onTowerPlaced((tower) => stats.onTowerPlaced(tower.definition.id));
+    this.towers.onTowerPlaced((tower) => {
+      stats.onTowerPlaced(tower.definition.id);
+      this.synergies.bind(tower);
+      this.synergies.recompute(this.towers.getAllTowers());
+    });
+    this.towers.onTowerSold((tower, refund) => {
+      if (this.towerInfoPanel.isOpen()) this.towerInfoPanel.hide();
+      this.synergies.unbind(tower);
+      this.synergies.recompute(this.towers.getAllTowers());
+      this.hud.flashStatus(`TORRE VENDIDA  +${refund} fichas`, 1400);
+    });
+    this.towers.onTowerRelocated(() => {
+      this.synergies.recompute(this.towers.getAllTowers());
+    });
+
+    // Disable the browser right-click menu so hold-RMB can be used to sell.
+    this.input.mouse?.disableContextMenu();
 
     this.renderHUD();
     this.chips.onChange(() => {
@@ -266,6 +456,10 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on("keydown-ESC", () => {
       if (this.settingsOverlay.isOpen()) {
         this.settingsOverlay.close();
+        return;
+      }
+      if (this.towers.isRelocating()) {
+        this.towers.cancelRelocate();
         return;
       }
       if (this.towerInfoPanel.isOpen()) {
@@ -307,6 +501,7 @@ export class GameScene extends Phaser.Scene {
       offers,
       waveJustClearedLabel: `${wave.displayName} despejada`,
       onResolved: (res) => this.resolveReward(res),
+      random: () => rng.next(),
     };
     this.scene.launch("BetweenWavesScene", data);
   }
@@ -371,7 +566,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const offerings = this.waveModifiers.pickOffering(Math.random, 3, {
+    const offerings = this.waveModifiers.pickOffering(() => rng.next(), 3, {
       rareBias: this.relics.rareModifierBias(),
     });
     if (offerings.length === 0) {
@@ -438,6 +633,8 @@ export class GameScene extends Phaser.Scene {
     this.towers.update(deltaMs, this.enemies.active);
     this.projectiles.update(deltaMs, this.enemies.active);
     this.bossController.update(deltaMs);
+    this.combo.update(deltaMs);
+    this.comboChip.update(this.combo.snapshot());
 
     // Stream boss HP to the dramatic overlay while the primary boss is alive.
     const primary = this.bossController.getPrimaryBoss();
@@ -447,7 +644,39 @@ export class GameScene extends Phaser.Scene {
     }
     this.bossOverlay.update(deltaMs);
 
+    // Danger vignette: fade + pulse intensity as HP falls below 33%.
+    const hpRatio = this.baseHp / this.baseHpMax;
+    if (hpRatio <= 0.33) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.time.now / 220);
+      const intensity = (1 - hpRatio / 0.33) * (0.6 + 0.4 * pulse);
+      this.redrawDangerVignette(intensity);
+    } else if (this.dangerVignette.alpha > 0) {
+      this.redrawDangerVignette(0);
+    }
+
     this.renderHUD();
+  }
+
+  private redrawDangerVignette(intensity: number): void {
+    const g = this.dangerVignette;
+    g.clear();
+    if (intensity <= 0.001) {
+      g.setAlpha(0);
+      return;
+    }
+    g.setAlpha(1);
+    const layers = 5;
+    const maxAlpha = Math.min(0.55, intensity * 0.55);
+    for (let i = 0; i < layers; i += 1) {
+      const t = i / (layers - 1);
+      const inset = 20 + t * 180;
+      const alpha = maxAlpha * (1 - t);
+      g.fillStyle(0xff3448, alpha);
+      g.fillRect(0, 0, MAP_WIDTH, inset);
+      g.fillRect(0, MAP_HEIGHT - inset, MAP_WIDTH, inset);
+      g.fillRect(0, 0, inset, MAP_HEIGHT);
+      g.fillRect(MAP_WIDTH - inset, 0, inset, MAP_HEIGHT);
+    }
   }
 
   /**
@@ -501,14 +730,25 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.baseHp <= 0 && !this.gameOver) {
+      // Death card: cheat death once
+      if (this.deathCards > 0) {
+        this.deathCards -= 1;
+        const restored = Math.max(3, Math.floor(this.baseHpMax * 0.25));
+        this.baseHp = restored;
+        this.hud.flashStatus(`CARTA DE MUERTE  ·  +${restored} HP`, 2500);
+        this.cameras.main.flash(400, 220, 180, 255, false);
+        this.cameras.main.shake(300, 0.01);
+        return;
+      }
       this.gameOver = true;
       audio.playGameOver();
-      stats.finalizeRun({ nowMs: this.time.now, won: false });
+      const entry = stats.finalizeRun({ nowMs: this.time.now, won: false });
+      this.achievementManager.check();
       this.enemies.clear();
       this.projectiles.clear();
       this.cameras.main.shake(480, 0.012);
       this.cameras.main.flash(320, 255, 60, 80, false);
-      this.showEndingCard("GAME OVER", "R para reiniciar", hex.danger);
+      this.time.delayedCall(900, () => this.showRunSummary(entry));
     }
   }
 
@@ -719,39 +959,30 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private showEndingCard(title: string, subtitle: string, color: string): void {
-    const overlay = this.add.rectangle(0, 0, MAP_WIDTH, MAP_HEIGHT, 0x000000, 0);
-    overlay.setOrigin(0, 0);
-    overlay.setDepth(250);
+  private showRunSummary(entry: import("@/types").RunHistoryEntry): void {
+    // Award gems based on performance
+    const gemsEarned = Math.floor(entry.waveCleared / 2) + (entry.won ? 5 : 0);
+    if (gemsEarned > 0) {
+      const profile = storage.load();
+      profile.gems = (profile.gems ?? 0) + gemsEarned;
+      storage.save(profile);
+    }
+    this.scene.launch("RunSummaryScene", { entry, runCode: this.runCode, seed: this.runSeed, gemsEarned });
+  }
 
-    const container = this.add.container(MAP_WIDTH / 2, MAP_HEIGHT / 2);
-    container.setDepth(300);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(palette.surface, 0.98);
-    bg.fillRoundedRect(-260, -90, 520, 180, 16);
-    bg.lineStyle(2, parseInt(color.slice(1), 16), 0.9);
-    bg.strokeRoundedRect(-260, -90, 520, 180, 16);
-
-    const headline = this.add.text(0, -28, title, textStyle(type.display, { color }));
-    headline.setOrigin(0.5, 0.5);
-    applyLetterSpacing(headline, type.display);
-
-    const sub = this.add.text(0, 32, subtitle, textStyle(type.bodyMuted));
-    sub.setOrigin(0.5, 0.5);
-
-    container.add([bg, headline, sub]);
-    container.setScale(0.9);
-    container.setAlpha(0);
-
-    this.tweens.add({ targets: overlay, fillAlpha: 0.6, duration: dur.slow, ease: ease.out });
-    this.tweens.add({
-      targets: container,
-      scale: 1,
-      alpha: 1,
-      duration: dur.slow,
-      ease: ease.snap,
-    });
+  /** Compact description of the next wave's composition, e.g. "8× swarm · 3× bruiser". */
+  private formatWavePreview(): string {
+    const next = this.waves.peekNextWave();
+    if (!next) return "";
+    const counts = new Map<string, number>();
+    for (const spawn of next.spawns) {
+      const def = ENEMIES[spawn.enemyId];
+      const label = def?.displayName ?? spawn.enemyId;
+      counts.set(label, (counts.get(label) ?? 0) + spawn.count);
+    }
+    const parts: string[] = [];
+    for (const [label, count] of counts) parts.push(`${count}× ${label}`);
+    return parts.slice(0, 3).join("  ·  ");
   }
 
   private renderHUD(): void {
@@ -769,7 +1000,10 @@ export class GameScene extends Phaser.Scene {
     } else if (this.paused) {
       actionHint = "Elige una recompensa";
     } else if (this.waves.canStartNext()) {
-      actionHint = "ESPACIO iniciar oleada   ·   1 / 2 / 3 cambiar torre   ·   click en slot para colocar";
+      const preview = this.formatWavePreview();
+      actionHint = preview
+        ? `APROXIMÁNDOSE  ${preview}   ·   SPACE iniciar`
+        : "ESPACIO iniciar oleada   ·   1 / 2 / 3 cambiar torre   ·   click en slot para colocar";
       actionPrimary = true;
     } else if (status === "spawning" || status === "clearing") {
       actionHint = "Oleada en curso   ·   1 / 2 / 3 cambiar torre";
@@ -1141,6 +1375,33 @@ export class GameScene extends Phaser.Scene {
     label.setOrigin(0.5, 0.5);
     label.setDepth(6);
     applyLetterSpacing(label, type.overline);
+  }
+
+  /**
+   * Slow-drifting golden motes scattered across the map for ambient depth.
+   * They live behind gameplay (depth -2) and never block interactions.
+   */
+  private drawAmbientMotes(): void {
+    const count = 32;
+    for (let i = 0; i < count; i += 1) {
+      const x = Math.random() * MAP_WIDTH;
+      const y = Math.random() * MAP_HEIGHT;
+      const radius = 1 + Math.random() * 2;
+      const alpha = 0.15 + Math.random() * 0.35;
+      const mote = this.add.circle(x, y, radius, palette.gold, alpha);
+      mote.setDepth(-2);
+      const driftDuration = 6000 + Math.random() * 4000;
+      const driftDistance = 30 + Math.random() * 60;
+      this.tweens.add({
+        targets: mote,
+        y: y - driftDistance,
+        alpha: { from: alpha, to: 0 },
+        duration: driftDuration,
+        ease: "Sine.InOut",
+        repeat: -1,
+        yoyo: true,
+      });
+    }
   }
 
   private drawVignette(): void {

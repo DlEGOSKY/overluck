@@ -42,6 +42,7 @@ export class TowerPicker {
   private readonly cards: CardRefs[] = [];
   private readonly headerText: Phaser.GameObjects.Text;
   private readonly onSelect: (id: TowerId) => boolean;
+  private readonly tooltipTargets: { hit: Phaser.GameObjects.Rectangle; id: TowerId }[] = [];
 
   public constructor(
     scene: Phaser.Scene,
@@ -139,6 +140,9 @@ export class TowerPicker {
       });
       hit.on("pointerdown", () => this.select(id));
 
+      // Hover tooltip with stats. Attached by the host scene after construction.
+      this.tooltipTargets.push({ hit, id });
+
       this.drawCard(ref);
 
       // Entrance animation staggered
@@ -186,6 +190,23 @@ export class TowerPicker {
         duration: dur.fast,
         ease: ease.snap,
       });
+    }
+  }
+
+  /** Wires each card's hover tooltip. Call once after construction. */
+  public attachTooltip(tooltip: import("./Tooltip").Tooltip): void {
+    for (const target of this.tooltipTargets) {
+      const def = this.catalog[target.id];
+      tooltip.attach(target.hit, () => ({
+        title: def.displayName,
+        subtitle: `COSTO ${def.cost}`,
+        body: [
+          `Daño ${def.damage} · Alcance ${def.range}`,
+          `Cadencia ${(1000 / def.fireRateMs).toFixed(1)} disparos/s`,
+          def.description ?? "",
+        ].filter(Boolean),
+        accent: def.color,
+      }));
     }
   }
 

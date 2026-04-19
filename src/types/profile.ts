@@ -1,4 +1,4 @@
-import type { EnemyId, RelicId, TowerId, WaveModifierId, WaveModifierRarity } from "@/types";
+import type { EnemyId, PactId, RelicId, TowerId, WaveModifierId, WaveModifierRarity } from "@/types";
 
 /**
  * Persistent profile stored in localStorage. Every field is optional-friendly
@@ -68,6 +68,10 @@ export interface ProfileData {
   // --- Run history (last N) --------------------------------------------
   recentRuns: RunHistoryEntry[];
 
+  // --- Meta-progression ------------------------------------------------
+  gems: number;
+  pacts: Partial<Record<PactId, number>>;
+
   // --- Settings --------------------------------------------------------
   settings: ProfileSettings;
 }
@@ -98,6 +102,8 @@ export function makeDefaultProfile(): ProfileData {
     unlocks: [],
     achievements: [],
     recentRuns: [],
+    gems: 0,
+    pacts: {},
     settings: {
       masterVolume: 0.8,
       sfxVolume: 0.8,

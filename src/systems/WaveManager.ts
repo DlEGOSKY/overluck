@@ -58,6 +58,13 @@ export class WaveManager {
     return this.waves.length;
   }
 
+  /** Returns the wave that would run if `startNext()` was called now. */
+  public peekNextWave(): WaveDefinition | null {
+    const nextIndex = this.currentIndex + 1;
+    if (nextIndex >= this.waves.length) return null;
+    return this.waves[nextIndex];
+  }
+
   public canStartNext(): boolean {
     return (
       (this.status === "idle" || this.status === "completed") &&

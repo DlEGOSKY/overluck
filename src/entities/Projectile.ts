@@ -201,40 +201,48 @@ export class Projectile {
     this.spawnPopup();
   }
 
+  /**
+   * Floating damage number. Scale + jitter + drift up then fade.
+   * - crit: big gold "CRIT ·N"
+   * - misfire: red "MISS ·N"
+   * - normal: small white "N"
+   */
   private spawnPopup(): void {
-    if (this.outcome === "normal") return;
     const isCrit = this.outcome === "crit";
-    const label = isCrit ? `CRIT · ${this.damage}` : `MISS · ${this.damage}`;
-    const color = isCrit ? hex.primary : hex.danger;
-    const text = this.scene.add.text(this.sprite.x, this.sprite.y - 18, label, {
+    const isMiss = this.outcome === "misfire";
+    const label = isCrit ? `CRIT·${this.damage}` : isMiss ? `MISS·${this.damage}` : `${this.damage}`;
+    const color = isCrit ? hex.primary : isMiss ? hex.danger : hex.text;
+    const fontSize = isCrit ? "16px" : isMiss ? "12px" : "11px";
+    const jitterX = (Math.random() - 0.5) * 16;
+
+    const text = this.scene.add.text(this.sprite.x + jitterX, this.sprite.y - 14, label, {
       fontFamily: '"Inter", "SF Pro Text", "Segoe UI", system-ui, sans-serif',
-      fontSize: isCrit ? "15px" : "12px",
+      fontSize,
       color,
       fontStyle: "bold",
     });
     text.setOrigin(0.5, 1);
     text.setDepth(23);
-    text.setLetterSpacing(isCrit ? 2 : 1);
-    text.setScale(0.7);
+    text.setLetterSpacing(isCrit ? 2 : 0.5);
+    text.setScale(0.6);
 
     this.scene.tweens.add({
       targets: text,
-      scale: 1,
+      scale: isCrit ? 1.1 : 1,
       duration: dur.quick,
       ease: ease.snap,
     });
 
     this.scene.tweens.add({
       targets: text,
-      y: text.y - 28,
+      y: text.y - (isCrit ? 36 : 24),
       alpha: { from: 1, to: 0 },
-      duration: 700,
+      duration: isCrit ? 800 : 560,
       ease: ease.out,
       onComplete: () => text.destroy(),
     });
 
     if (isCrit) {
-      // Use colorToHex to derive stroke color dynamically from projectile color
       text.setStroke(colorToHex(palette.bgDeep), 3);
     }
   }

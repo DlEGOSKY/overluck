@@ -159,4 +159,80 @@ export const ENEMIES: EnemyCatalog = {
       },
     ],
   },
+
+  // --- Dealer Boss (casino mechanics against the player) ----------------
+  dealer: {
+    id: "dealer",
+    displayName: "El Gran Crupier",
+    maxHp: 1600,
+    speed: 32,
+    damageToBase: 15,
+    chipReward: 250,
+    color: 0xffd700,
+    radius: 32,
+    shape: "boss",
+    eliteAura: true,
+    fullscreenHpBar: true,
+    shieldHits: 2,
+    damageReduction: 2,
+    phases: [
+      {
+        label: "FASE I · REPARTE LA MANO",
+        hpStart: 1,
+        color: 0xffd700,
+        flavor: "Las cartas caen. La banca juega primero.",
+      },
+      {
+        label: "FASE II · MESA CALIENTE",
+        hpStart: 0.65,
+        color: 0xff8c00,
+        flavor: "La casa sube la apuesta. Tus fichas desaparecen.",
+      },
+      {
+        label: "FASE III · ALL IN",
+        hpStart: 0.35,
+        color: 0xdc143c,
+        flavor: "Sin reglas. Sin piedad. Todo o nada.",
+      },
+    ],
+    abilities: [
+      {
+        kind: "chipDrain",
+        hpTrigger: 0.70,
+        chipDrainFraction: 0.20,
+      },
+      {
+        kind: "summon",
+        hpTrigger: 0.60,
+        summonId: "elite",
+        summonCount: 2,
+      },
+      {
+        kind: "towerJam",
+        hpTrigger: 0.50,
+        jamDurationMs: 3500,
+      },
+      {
+        kind: "shieldPulse",
+        hpTrigger: 0.40,
+        durationMs: 3000,
+      },
+      {
+        kind: "houseEdge",
+        hpTrigger: 0.35,
+        critPenalty: 0.15,
+      },
+      {
+        kind: "summon",
+        hpTrigger: 0.25,
+        summonId: "shielded",
+        summonCount: 3,
+      },
+      {
+        kind: "speedBoost",
+        hpTrigger: 0.15,
+        speedMult: 1.70,
+      },
+    ],
+  },
 };

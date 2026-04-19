@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import type { RelicDefinition, WaveModifierDefinition } from "@/types";
+import type { Tooltip } from "./Tooltip";
 import {
   applyLetterSpacing,
   colorToHex,
@@ -65,10 +66,12 @@ export class HUD {
     iconHolder: Phaser.GameObjects.Container;
     currentIcon: Phaser.GameObjects.GameObject | null;
     currentRelicId: string | null;
+    currentRelicDef: RelicDefinition | null;
     text: Phaser.GameObjects.Text;
   }[] = [];
 
   private hintPulse: Phaser.Tweens.Tween | null = null;
+  private basePulse: Phaser.Tweens.Tween | null = null;
 
   // Wave modifier ("pacto del crupier") chip shown below the top panel.
   private pactChip!: Phaser.GameObjects.Container;
@@ -76,6 +79,9 @@ export class HUD {
   private pactLabel!: Phaser.GameObjects.Text;
   private pactPulse: Phaser.Tweens.Tween | null = null;
   private lastPactId: string | null = null;
+  private tooltip: Tooltip | null = null;
+  private pactHit: Phaser.GameObjects.Rectangle | null = null;
+  private pactActive: WaveModifierDefinition | null = null;
 
   public constructor(scene: Phaser.Scene, worldWidth: number, worldHeight: number) {
     this.scene = scene;
@@ -148,6 +154,29 @@ export class HUD {
     this.pactLabel = scene.add.text(12, 20, "", textStyle(type.caption));
     applyLetterSpacing(this.pactLabel, type.caption);
     this.pactChip.add(this.pactLabel);
+
+    // Hit zone for pact-chip hover tooltip.
+    this.pactHit = scene.add.rectangle(12, 18, 140, 36, 0x000000, 0.001);
+    this.pactHit.setOrigin(0, 0.5);
+    this.pactHit.setInteractive({ useHandCursor: true });
+    this.pactChip.add(this.pactHit);
+  }
+
+  /** Host scene wires up the shared tooltip instance once after create(). */
+  public setTooltip(tooltip: Tooltip): void {
+    this.tooltip = tooltip;
+    if (this.pactHit) {
+      this.tooltip.attach(this.pactHit, () => {
+        const mod = this.pactActive;
+        if (!mod) return null;
+        return {
+          title: mod.displayName,
+          subtitle: mod.rarity === "rare" ? "PACTO RARO" : "PACTO",
+          body: [mod.description, mod.flavor],
+          accent: mod.color,
+        };
+      });
+    }
   }
 
   public render(state: HUDState): void {
@@ -160,6 +189,9 @@ export class HUD {
     base.value.setColor(
       ratio > 0.5 ? hex.text : ratio > 0.25 ? hex.warn : hex.danger,
     );
+
+    // Heart-beat: pulse the heart icon when HP drops below 30%.
+    this.applyHeartBeat(ratio, base.iconContainer);
 
     const wave = this.columns.get("wave")!;
     wave.value.setText(state.waveLabel);
@@ -185,6 +217,35 @@ export class HUD {
     } else {
       this.statusText.setVisible(false);
     }
+  }
+
+  /**
+   * Yoyo-scale the heart icon when HP ratio is under 30%. Faster pulse the
+   * closer to zero. Stops cleanly when HP recovers.
+   */
+  private applyHeartBeat(
+    ratio: number,
+    icon: Phaser.GameObjects.Container | Phaser.GameObjects.Graphics,
+  ): void {
+    const shouldPulse = ratio > 0 && ratio <= 0.3;
+    if (!shouldPulse) {
+      if (this.basePulse) {
+        this.basePulse.stop();
+        this.basePulse = null;
+        icon.setScale(1);
+      }
+      return;
+    }
+    if (this.basePulse) return; // already pulsing
+    const speed = ratio < 0.15 ? 420 : 680;
+    this.basePulse = this.scene.tweens.add({
+      targets: icon,
+      scale: { from: 1, to: 1.2 },
+      yoyo: true,
+      repeat: -1,
+      duration: speed,
+      ease: ease.inOut,
+    });
   }
 
   public flashStatus(text: string, durationMs = 1500): void {
@@ -270,6 +331,23 @@ export class HUD {
       text.setOrigin(0, 0.5);
       container.add(text);
 
+      // Hit zone for hover tooltip.
+      const height = 30;
+      const hit = this.scene.add.rectangle(-width / 2, 0, width, height, 0x000000, 0.001);
+      hit.setInteractive({ useHandCursor: true });
+      container.add(hit);
+      const slotIndex = index;
+      this.tooltip?.attach(hit, () => {
+        const relic = this.relicSlots[slotIndex]?.currentRelicDef;
+        if (!relic) return null;
+        return {
+          title: relic.displayName,
+          subtitle: "RELIQUIA",
+          body: [relic.description],
+          accent: relic.color,
+        };
+      });
+
       // Entrance
       container.setAlpha(0);
       container.setScale(0.9);
@@ -287,6 +365,7 @@ export class HUD {
         iconHolder,
         currentIcon: null,
         currentRelicId: null,
+        currentRelicDef: null,
         text,
       });
     }
@@ -330,6 +409,7 @@ export class HUD {
         slot.currentIcon = icon;
         slot.currentRelicId = relic.id;
       }
+      slot.currentRelicDef = relic;
 
       slot.text.setText(relic.displayName);
       slot.text.setColor(colorToHex(relic.color));
@@ -337,6 +417,7 @@ export class HUD {
   }
 
   private renderPact(mod: WaveModifierDefinition | null): void {
+    this.pactActive = mod;
     if (!mod) {
       if (this.pactChip.visible) {
         if (this.pactPulse) {
