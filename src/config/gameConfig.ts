@@ -7,6 +7,7 @@ import { SlotScene } from "@/scenes/SlotScene";
 import { RouletteScene } from "@/scenes/RouletteScene";
 import { ModifierPickScene } from "@/scenes/ModifierPickScene";
 import { UnlockScene } from "@/scenes/UnlockScene";
+import { CardScene } from "@/scenes/CardScene";
 
 export const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -22,5 +23,5 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     pixelArt: false,
     antialias: true,
   },
-  scene: [BootScene, GameScene, BetweenWavesScene, SlotScene, RouletteScene, ModifierPickScene, UnlockScene],
+  scene: [BootScene, GameScene, BetweenWavesScene, SlotScene, RouletteScene, ModifierPickScene, UnlockScene, CardScene],
 };

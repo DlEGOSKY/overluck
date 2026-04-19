@@ -27,12 +27,17 @@ export interface RoulettePlayPayload {
   stake: number;
 }
 
+export interface CardPlayPayload {
+  stake: number;
+}
+
 export type RewardPayload =
   | SafeChipsPayload
   | RelicPayload
   | CasinoGamblePayload
   | SlotPlayPayload
-  | RoulettePlayPayload;
+  | RoulettePlayPayload
+  | CardPlayPayload;
 
 export interface RewardTemplate {
   kind: RewardKind;

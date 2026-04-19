@@ -112,6 +112,16 @@ export const REWARD_TEMPLATES: readonly RewardTemplate[] = [
     payload: { cost: 0 },
   },
   {
+    kind: "card_play",
+    displayName: "BLACKJACK",
+    description: "El crupier reparte. Apuesta 40. 21 natural paga 1.5x.",
+    rarity: "rare",
+    weight: 2,
+    color: 0xd4a24c,
+    payload: { stake: 40 },
+    requiresUnlock: "scene_cards",
+  },
+  {
     kind: "roulette_play",
     displayName: "RULETA",
     description: "Apuesta 40 fichas. Si aciertas color o paridad, +40.",
