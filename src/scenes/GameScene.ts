@@ -48,6 +48,9 @@ export class GameScene extends Phaser.Scene {
   private towerInfoPanel!: TowerInfoPanel;
   private bossOverlay!: BossHpOverlay;
   private phaseCallout!: PhaseCallout;
+  private pauseOverlay!: PauseOverlay;
+  private settingsOverlay!: SettingsOverlay;
+  private speedMultiplier: 1 | 2 = 1;
 
   private baseHp = INITIAL_BASE_HP;
   private baseHpMax = INITIAL_BASE_HP;
@@ -89,6 +92,21 @@ export class GameScene extends Phaser.Scene {
     this.pendingUnlocks = [];
     this.unlockManager = new UnlockManager({
       onUnlocked: (def) => this.pendingUnlocks.push(def),
+    });
+
+    // Pause menu + settings overlays share a `paused` suspension with the
+    // rest of the game so tweens/time don't advance while they are open.
+    this.pauseOverlay = new PauseOverlay(this, MAP_WIDTH, MAP_HEIGHT, {
+      onResume: () => this.resumeGame(),
+      onSettings: () => {
+        this.pauseOverlay.close();
+        this.settingsOverlay.open();
+      },
+      onRestart: () => this.scene.restart(),
+    });
+    this.settingsOverlay = new SettingsOverlay(this, MAP_WIDTH, MAP_HEIGHT, () => {
+      // After closing settings, reopen pause if we were paused.
+      if (this.paused && !this.pauseOverlay.isOpen()) this.pauseOverlay.open();
     });
 
     const rewardForKill = (enemy: { definition: { id: import("@/types").EnemyId; chipReward: number } }) => {
@@ -244,8 +262,20 @@ export class GameScene extends Phaser.Scene {
       if (this.gameOver || this.victory) this.scene.restart();
     });
     this.input.keyboard?.on("keydown-ESC", () => {
-      if (this.towerInfoPanel.isOpen()) this.towerInfoPanel.hide();
+      if (this.settingsOverlay.isOpen()) {
+        this.settingsOverlay.close();
+        return;
+      }
+      if (this.towerInfoPanel.isOpen()) {
+        this.towerInfoPanel.hide();
+        return;
+      }
+      if (this.pauseOverlay.isOpen()) this.resumeGame();
+      else this.openPauseMenu();
     });
+
+    // Speed toggle (T): 1× ↔ 2×. Affects tween + time scale.
+    this.input.keyboard?.on("keydown-T", () => this.toggleSpeed());
     this.input.keyboard?.on("keydown-ONE", () => this.selectTower(towerIds[0]));
     this.input.keyboard?.on("keydown-TWO", () => towerIds[1] && this.selectTower(towerIds[1]));
     this.input.keyboard?.on("keydown-THREE", () => towerIds[2] && this.selectTower(towerIds[2]));
@@ -285,6 +315,7 @@ export class GameScene extends Phaser.Scene {
     if (res.kind === "slot_bust") {
       const all = this.chips.value;
       if (all > 0) this.chips.spend(all);
+      stats.onSlotPlayed(all);
       this.hud.flashStatus(res.displayName, 2400);
       this.cameras.main.shake(320, 0.01);
       return;
@@ -302,6 +333,15 @@ export class GameScene extends Phaser.Scene {
       const id = res.relicId as RelicId;
       this.relics.acquire(id);
       stats.onRelicAcquired(id);
+    }
+
+    // Track casino mini-game participation for unlocks / achievements.
+    if (res.kind === "slot_play") {
+      stats.onSlotPlayed(res.chipsDelta < 0 ? -res.chipsDelta : 0);
+    } else if (res.kind === "roulette_play") {
+      stats.onRoulettePlayed();
+    } else if (res.kind === "card_play") {
+      stats.onCardsPlayed();
     }
 
     if (res.chipsDelta > 0) {
@@ -413,12 +453,32 @@ export class GameScene extends Phaser.Scene {
    * Uses timeScale because `scene.pause()` would suspend input & rendering.
    */
   private applyHitStop(durationMs: number): void {
-    this.tweens.timeScale = 0.25;
-    this.time.timeScale = 0.25;
+    const target = 0.25 * this.speedMultiplier;
+    this.tweens.timeScale = target;
+    this.time.timeScale = target;
     this.time.delayedCall(durationMs, () => {
-      this.tweens.timeScale = 1;
-      this.time.timeScale = 1;
+      this.tweens.timeScale = this.speedMultiplier;
+      this.time.timeScale = this.speedMultiplier;
     });
+  }
+
+  private openPauseMenu(): void {
+    if (this.gameOver || this.victory) return;
+    this.paused = true;
+    this.pauseOverlay.open();
+  }
+
+  private resumeGame(): void {
+    this.paused = false;
+    this.pauseOverlay.close();
+  }
+
+  private toggleSpeed(): void {
+    if (this.paused || this.gameOver || this.victory) return;
+    this.speedMultiplier = this.speedMultiplier === 1 ? 2 : 1;
+    this.tweens.timeScale = this.speedMultiplier;
+    this.time.timeScale = this.speedMultiplier;
+    this.hud.flashStatus(`VELOCIDAD  ${this.speedMultiplier}X`, 900);
   }
 
   private startNextWaveIfPossible(): void {

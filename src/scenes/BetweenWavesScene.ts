@@ -3,6 +3,7 @@ import { MAP_HEIGHT, MAP_WIDTH } from "@/data/path";
 import { audio } from "@/systems/AudioManager";
 import type { SlotResult, SlotSceneData } from "@/scenes/SlotScene";
 import type { RouletteResult, RouletteSceneData } from "@/scenes/RouletteScene";
+import type { CardResult, CardSceneData } from "@/scenes/CardScene";
 import {
   applyLetterSpacing,
   colorToHex,
@@ -15,6 +16,7 @@ import {
   type,
 } from "@/ui/theme";
 import type {
+  CardPlayPayload,
   CasinoGamblePayload,
   RelicPayload,
   RewardOffer,
@@ -30,7 +32,8 @@ export interface BetweenWavesResolution {
     | "casino_gamble"
     | "slot_play"
     | "slot_bust"
-    | "roulette_play";
+    | "roulette_play"
+    | "card_play";
   chipsDelta: number;
   relicId?: string;
   casinoOutcome?: "win" | "lose";
@@ -359,6 +362,7 @@ export class BetweenWavesScene extends Phaser.Scene {
     if (template.kind === "relic") return "✦";
     if (template.kind === "slot_play") return "⟳";
     if (template.kind === "roulette_play") return "◉";
+    if (template.kind === "card_play") return "♠";
     return "◆";
   }
 
@@ -367,6 +371,7 @@ export class BetweenWavesScene extends Phaser.Scene {
     if (template.kind === "relic") return "RELIQUIA";
     if (template.kind === "slot_play") return "SLOT MACHINE";
     if (template.kind === "roulette_play") return "RULETA";
+    if (template.kind === "card_play") return "BLACKJACK";
     return "APUESTA";
   }
 
@@ -404,8 +409,39 @@ export class BetweenWavesScene extends Phaser.Scene {
       return;
     }
 
+    if (template.kind === "card_play") {
+      const payload = template.payload as CardPlayPayload;
+      this.openCards(payload.stake);
+      return;
+    }
+
     const payload = template.payload as CasinoGamblePayload;
     this.playGamble(template.displayName, payload);
+  }
+
+  private openCards(stake: number): void {
+    const data: CardSceneData = {
+      stake,
+      random: this.random,
+      onResolved: (res) => this.handleCardResult(res),
+    };
+    this.scene.launch("CardScene", data);
+  }
+
+  private handleCardResult(res: CardResult): void {
+    this.resolve({
+      kind: "card_play",
+      chipsDelta: res.chipsDelta,
+      displayName:
+        res.outcome === "blackjack"
+          ? "BLACKJACK"
+          : res.outcome === "win"
+            ? "GANAS"
+            : res.outcome === "push"
+              ? "EMPATE"
+              : "PIERDES",
+      casinoOutcome: res.outcome === "loss" ? "lose" : res.outcome === "push" ? undefined : "win",
+    });
   }
 
   private openRoulette(stake: number): void {
